@@ -1,0 +1,1308 @@
+<title>Multi-Tenant LLM Evaluation &amp; Governance Platform — Architecture Review</title>
+<style>
+  :root{
+    --ink:#0b0e14;
+    --panel:#131924;
+    --panel-raised:#1a2230;
+    --line:#26303f;
+    --line-soft:#1c2430;
+    --paper:#e7ecf4;
+    --mist:#8793a8;
+    --mist-dim:#5b6578;
+    --signal:#4fd8c4;      /* AWS lane / primary accent */
+    --signal-dim:#2c8b7f;
+    --azure:#7c93ff;       /* Azure lane */
+    --azure-dim:#4f5fb0;
+    --critical:#ff6b6a;
+    --warn:#f0b54d;
+    --shared:#c9d3e2;
+    --radius:3px;
+    --font-display:"Neue Haas Grotesk Display","Helvetica Neue",Helvetica,Arial,sans-serif;
+    --font-body:"Söhne","Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
+    --font-mono:"JetBrains Mono","SF Mono",Consolas,"Roboto Mono","Liberation Mono",monospace;
+  }
+
+  *,*::before,*::after{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:var(--ink);
+    color:var(--paper);
+    font-family:var(--font-body);
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  body::before{
+    content:"";
+    position:fixed;inset:0;
+    pointer-events:none;
+    z-index:0;
+    background-image:
+      repeating-linear-gradient(0deg, rgba(231,236,244,.025) 0 1px, transparent 1px 80px),
+      repeating-linear-gradient(90deg, rgba(231,236,244,.025) 0 1px, transparent 1px 80px),
+      repeating-linear-gradient(0deg, rgba(231,236,244,.012) 0 1px, transparent 1px 16px),
+      repeating-linear-gradient(90deg, rgba(231,236,244,.012) 0 1px, transparent 1px 16px);
+  }
+
+  a{color:inherit}
+  ::selection{background:var(--signal);color:var(--ink)}
+
+  button{font-family:inherit;color:inherit}
+
+  .wrap{position:relative;z-index:1;max-width:1400px;margin:0 auto;padding:0 28px}
+
+  /* ---------- Title block ---------- */
+  header.titleblock{
+    padding:34px 0 22px;
+    border-bottom:1px solid var(--line);
+  }
+  .tb-row{display:flex;justify-content:space-between;align-items:flex-end;gap:32px;flex-wrap:wrap}
+  .tb-left{display:flex;gap:16px;align-items:flex-start}
+  .compass{flex:none;margin-top:4px}
+  .eyebrow{
+    font-family:var(--font-mono);
+    font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--signal);margin:0 0 8px;
+  }
+  h1{
+    font-family:var(--font-display);
+    font-weight:700;
+    font-size:clamp(24px,3vw,34px);
+    line-height:1.08;
+    margin:0 0 8px;
+    letter-spacing:-.01em;
+    text-wrap:balance;
+  }
+  .tb-sub{
+    color:var(--mist);
+    font-size:14.5px;
+    max-width:56ch;
+    margin:0;
+  }
+  .tb-meta{
+    font-family:var(--font-mono);
+    font-size:11px;
+    color:var(--mist);
+    text-align:right;
+    line-height:1.9;
+    white-space:nowrap;
+  }
+  .tb-meta b{color:var(--paper);font-weight:600}
+
+  .legend{
+    display:flex;gap:22px;flex-wrap:wrap;
+    margin-top:20px;
+    font-family:var(--font-mono);
+    font-size:11px;
+    letter-spacing:.04em;
+    color:var(--mist);
+  }
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .swatch{width:11px;height:11px;border-radius:2px;display:inline-block;flex:none}
+  .sw-aws{background:var(--signal)}
+  .sw-azure{background:var(--azure)}
+  .sw-shared{background:var(--shared);opacity:.5}
+  .sw-critical{background:var(--critical)}
+
+  /* ---------- Tab rail ---------- */
+  nav.tabs{
+    display:flex;
+    gap:2px;
+    margin-top:26px;
+    border-bottom:1px solid var(--line);
+    overflow-x:auto;
+  }
+  .tab{
+    background:transparent;
+    border:none;
+    border-bottom:2px solid transparent;
+    padding:14px 20px 12px;
+    cursor:pointer;
+    text-align:left;
+    flex:none;
+    transition:background .15s;
+  }
+  .tab:hover{background:rgba(231,236,244,.03)}
+  .tab .tnum{
+    display:block;
+    font-family:var(--font-mono);
+    font-size:10.5px;
+    letter-spacing:.12em;
+    color:var(--mist-dim);
+    margin-bottom:4px;
+  }
+  .tab .tname{
+    display:block;
+    font-family:var(--font-display);
+    font-weight:600;
+    font-size:14.5px;
+    color:var(--mist);
+    white-space:nowrap;
+  }
+  .tab[aria-selected="true"]{border-bottom-color:var(--signal)}
+  .tab[aria-selected="true"] .tname{color:var(--paper)}
+  .tab[aria-selected="true"] .tnum{color:var(--signal)}
+  .tab:focus-visible{outline:2px solid var(--signal);outline-offset:-2px}
+
+  /* ---------- Canvas ---------- */
+  main{position:relative;z-index:1;padding:26px 0 80px}
+  .sheet{display:none}
+  .sheet.active{display:block}
+
+  .canvas{
+    position:relative;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    overflow:auto;
+    padding:0;
+  }
+  .canvas-inner{position:relative;min-width:760px}
+
+  .corner-tick{position:absolute;width:16px;height:16px;pointer-events:none;z-index:2}
+  .corner-tick::before,.corner-tick::after{content:"";position:absolute;background:var(--mist-dim)}
+  .ct-tl{top:8px;left:8px}
+  .ct-tr{top:8px;right:8px}
+  .ct-bl{bottom:8px;left:8px}
+  .ct-br{bottom:8px;right:8px}
+  .corner-tick::before{width:9px;height:1px;top:0;left:0}
+  .corner-tick::after{width:1px;height:9px;top:0;left:0}
+  .ct-tr::before{right:0;left:auto}
+  .ct-tr::after{right:0;left:auto}
+  .ct-bl::before{bottom:0;top:auto}
+  .ct-bl::after{bottom:0;top:auto}
+  .ct-br::before{bottom:0;top:auto;right:0;left:auto}
+  .ct-br::after{bottom:0;top:auto;right:0;left:auto}
+
+  .dwg-tag{
+    position:absolute;left:22px;bottom:16px;
+    font-family:var(--font-mono);font-size:10.5px;color:var(--mist-dim);
+    letter-spacing:.06em;pointer-events:none;z-index:2;
+  }
+  .dwg-tag b{color:var(--mist);font-weight:500}
+
+  .sheet-toolbar{
+    display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;
+    margin-bottom:14px;
+  }
+  .sheet-desc{color:var(--mist);font-size:13.5px;max-width:62ch;margin:0}
+
+  /* segmented toggle */
+  .seg{
+    display:inline-flex;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;flex:none;
+  }
+  .seg button{
+    background:var(--panel);border:none;padding:7px 14px;
+    font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;
+    color:var(--mist);cursor:pointer;border-left:1px solid var(--line);
+  }
+  .seg button:first-child{border-left:none}
+  .seg button.on{background:var(--panel-raised);color:var(--paper)}
+  .seg button:hover{color:var(--paper)}
+  .seg button:focus-visible{outline:2px solid var(--signal);outline-offset:-2px}
+
+  /* transport controls (sequence sheet) */
+  .transport{display:inline-flex;gap:6px;align-items:center}
+  .tbtn{
+    width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    cursor:pointer;color:var(--mist);
+  }
+  .tbtn:hover{color:var(--paper);border-color:var(--mist-dim)}
+  .tbtn:focus-visible{outline:2px solid var(--signal)}
+  .step-readout{
+    font-family:var(--font-mono);font-size:11px;color:var(--mist);min-width:64px;text-align:center;
+  }
+
+  .canvas svg{display:block;width:100%;height:auto}
+
+  /* node/edge base */
+  .node{cursor:pointer}
+  .node .nodebox{transition:stroke-width .18s, filter .18s}
+  .node:hover .nodebox, .node.hi .nodebox{stroke-width:2.4}
+  .node:focus-visible{outline:none}
+  .node:focus-visible .nodebox{stroke:var(--paper);stroke-width:2.4}
+  .node.dim{opacity:.32}
+  .node-title{font-family:var(--font-display);font-weight:600;fill:var(--paper)}
+  .node-cap{font-family:var(--font-mono);fill:var(--mist)}
+  .tag-pill{font-family:var(--font-mono);letter-spacing:.05em}
+
+  .edge{fill:none;stroke:var(--mist-dim);stroke-width:1.4;transition:opacity .2s, stroke-width .2s}
+  .edge.dim{opacity:.14}
+  .edge.hi{stroke-width:2.6;opacity:1}
+  .edge-label{font-family:var(--font-mono);fill:var(--mist);letter-spacing:.01em}
+  .edge-critical{stroke:var(--critical)}
+
+  .draw{stroke-dasharray:1;stroke-dashoffset:1;animation:draw .85s cubic-bezier(.3,.6,.3,1) forwards}
+  @keyframes draw{to{stroke-dashoffset:0}}
+
+  /* dashed edges use plain pixel units (no pathLength normalization) so the
+     dash pattern and the marching-ants loop stay independent of path length */
+  .dash-live{stroke-dasharray:6 5;animation:dashfade .4s ease forwards, march 1s linear infinite}
+  @keyframes dashfade{from{opacity:0}to{opacity:1}}
+  @keyframes march{to{stroke-dashoffset:-22}}
+  @media (prefers-reduced-motion: reduce){.dash-live{animation:none;opacity:1}}
+  .fadein{opacity:0;transform:scale(.94);transform-box:fill-box;transform-origin:center;animation:fadein .5s ease forwards}
+  @keyframes fadein{to{opacity:1;transform:scale(1)}}
+
+  .scanline{animation:scan 5.5s linear infinite}
+  @keyframes scan{0%{transform:translateY(-2%)}100%{transform:translateY(102%)}}
+
+  @media (prefers-reduced-motion: reduce){
+    .draw,.fadein{animation:none;stroke-dashoffset:0;opacity:1;transform:none}
+    .scanline{animation:none;display:none}
+  }
+
+  /* ---------- Drawer ---------- */
+  .scrim{
+    position:fixed;inset:0;background:rgba(5,7,11,.5);
+    opacity:0;pointer-events:none;transition:opacity .2s;z-index:8;
+  }
+  .scrim.open{opacity:1;pointer-events:auto}
+
+  .drawer{
+    position:fixed;top:0;right:0;height:100%;width:min(400px,92vw);
+    background:var(--panel);border-left:1px solid var(--line);
+    transform:translateX(100%);transition:transform .28s cubic-bezier(.3,.7,.3,1);
+    z-index:9;display:flex;flex-direction:column;
+  }
+  .drawer.open{transform:translateX(0)}
+  .drawer-head{
+    padding:22px 22px 16px;border-bottom:1px solid var(--line);
+    display:flex;justify-content:space-between;align-items:flex-start;gap:12px;
+  }
+  .drawer-tag{
+    display:inline-block;font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;
+    padding:3px 8px;border-radius:2px;margin-bottom:10px;border:1px solid currentColor;
+  }
+  .drawer-title{font-family:var(--font-display);font-size:19px;font-weight:700;margin:0;text-wrap:balance}
+  .drawer-close{
+    flex:none;width:28px;height:28px;border:1px solid var(--line);background:transparent;
+    border-radius:var(--radius);color:var(--mist);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .drawer-close:hover{color:var(--paper);border-color:var(--mist-dim)}
+  .drawer-body{padding:18px 22px 28px;overflow-y:auto;flex:1}
+  .drawer-body p{color:var(--mist);font-size:13.5px;line-height:1.65;margin:0 0 18px}
+  .spec-table{width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:12px}
+  .spec-table tr{border-top:1px solid var(--line-soft)}
+  .spec-table tr:first-child{border-top:none}
+  .spec-table td{padding:8px 0;vertical-align:top}
+  .spec-table td:first-child{color:var(--mist-dim);width:38%;padding-right:10px}
+  .spec-table td:last-child{color:var(--paper)}
+  .cloud-split{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px}
+  .cloud-card{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px}
+  .cloud-card h4{
+    margin:0 0 6px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;
+  }
+  .cloud-card.aws h4{color:var(--signal)}
+  .cloud-card.azure h4{color:var(--azure)}
+  .cloud-card div{font-family:var(--font-mono);font-size:12px;color:var(--paper);line-height:1.6;word-break:break-word}
+
+  /* ---------- Footer ---------- */
+  footer{
+    position:fixed;left:0;right:0;bottom:0;z-index:5;
+    background:var(--ink);border-top:1px solid var(--line);
+    font-family:var(--font-mono);font-size:11px;color:var(--mist);
+    padding:9px 28px;display:flex;justify-content:space-between;gap:16px;
+  }
+  .pulse-dot{
+    width:6px;height:6px;border-radius:50%;background:var(--signal);display:inline-block;margin-right:8px;
+    animation:pulse 2.2s ease-in-out infinite;
+  }
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  @media (prefers-reduced-motion: reduce){.pulse-dot{animation:none}}
+
+  @media (max-width:720px){
+    .tb-row{flex-direction:column;align-items:flex-start}
+    .tb-meta{text-align:left}
+    footer{font-size:10px}
+  }
+</style>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <div>
+      <span class="drawer-tag" id="drawerTag">TAG</span>
+      <h3 class="drawer-title" id="drawerTitle">Title</h3>
+    </div>
+    <button class="drawer-close" id="drawerClose" aria-label="Close detail panel">
+      <svg width="13" height="13" viewBox="0 0 13 13"><path d="M1 1L12 12M12 1L1 12" stroke="currentColor" stroke-width="1.4"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+</aside>
+
+<div class="wrap">
+  <header class="titleblock">
+    <div class="tb-row">
+      <div class="tb-left">
+        <svg class="compass" width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+          <circle cx="17" cy="17" r="15.5" fill="none" stroke="var(--mist-dim)" stroke-width="1"/>
+          <circle cx="17" cy="17" r="2" fill="var(--signal)"/>
+          <path d="M17 1V7M17 27V33M1 17H7M27 17H33" stroke="var(--mist-dim)" stroke-width="1"/>
+        </svg>
+        <div>
+          <p class="eyebrow">Architecture Review Set — AWS ⇄ Azure</p>
+          <h1>Multi-Tenant LLM Evaluation &amp; Governance Platform</h1>
+          <p class="tb-sub">Three independently-deployable systems — ingestion &amp; redaction, dataset versioning &amp; GDPR erasure, and evaluation mining &amp; autorating — each symmetric across AWS and Azure.</p>
+        </div>
+      </div>
+      <div class="tb-meta">
+        DOC&nbsp;&nbsp;<b>ENT&#8209;ARCH&#8209;2026&#8209;07</b><br>
+        REV&nbsp;&nbsp;<b>1.0</b><br>
+        SCOPE&nbsp;&nbsp;<b>3 systems / 2 clouds</b><br>
+        PREPARED&nbsp;FOR&nbsp;&nbsp;<b>Architecture Review Board</b>
+      </div>
+    </div>
+
+    <div class="legend" id="globalLegend">
+      <span><i class="swatch sw-aws"></i>AWS resource</span>
+      <span><i class="swatch sw-azure"></i>Azure resource</span>
+      <span><i class="swatch sw-shared"></i>Shared / cloud-agnostic</span>
+      <span><i class="swatch sw-critical"></i>Critical / destructive path</span>
+    </div>
+
+    <nav class="tabs" role="tablist" aria-label="Architecture diagrams" id="tabs">
+      <button class="tab" role="tab" data-sheet="1" aria-selected="true"><span class="tnum">SHEET 01</span><span class="tname">System Context</span></button>
+      <button class="tab" role="tab" data-sheet="2" aria-selected="false"><span class="tnum">SHEET 02</span><span class="tname">Deployment Topology</span></button>
+      <button class="tab" role="tab" data-sheet="3" aria-selected="false"><span class="tnum">SHEET 03</span><span class="tname">Data Flow &amp; Classification</span></button>
+      <button class="tab" role="tab" data-sheet="4" aria-selected="false"><span class="tnum">SHEET 04</span><span class="tname">Security &amp; Trust Boundaries</span></button>
+      <button class="tab" role="tab" data-sheet="5" aria-selected="false"><span class="tnum">SHEET 05</span><span class="tname">Runtime Sequence</span></button>
+      <button class="tab" role="tab" data-sheet="6" aria-selected="false"><span class="tnum">SHEET 06</span><span class="tname">Risk &amp; Gaps Register</span></button>
+      <button class="tab" role="tab" data-sheet="7" aria-selected="false"><span class="tnum">SHEET 07</span><span class="tname">Capability Map</span></button>
+    </nav>
+  </header>
+
+  <main>
+    <section class="sheet active" id="sheet-1" data-title="SYSTEM CONTEXT · C4 Level 1">
+      <div class="sheet-toolbar">
+        <p class="sheet-desc">The platform's landscape: three systems, the actors who touch them, and the data lake that connects them. On-call observation paths and the GDPR erasure path both terminate here.</p>
+      </div>
+      <div class="canvas"><div class="canvas-inner" id="canvas-1"></div>
+        <span class="corner-tick ct-tl"></span><span class="corner-tick ct-tr"></span><span class="corner-tick ct-bl"></span><span class="corner-tick ct-br"></span>
+        <span class="dwg-tag">DWG&#8209;01 &nbsp;<b>SYSTEM CONTEXT</b>&nbsp; · SCALE: NTS</span>
+      </div>
+    </section>
+
+    <section class="sheet" id="sheet-2" data-title="DEPLOYMENT TOPOLOGY · AWS ⇄ AZURE">
+      <div class="sheet-toolbar">
+        <p class="sheet-desc">Every resource lane has a symmetric twin on the other cloud, built from identical Terraform variable conventions. One asymmetry is currently open — flagged in coral.</p>
+        <div class="seg" id="cloudToggle" role="group" aria-label="Filter by cloud">
+          <button class="on" data-view="both">BOTH</button>
+          <button data-view="aws">AWS ONLY</button>
+          <button data-view="azure">AZURE ONLY</button>
+        </div>
+      </div>
+      <div class="canvas"><div class="canvas-inner" id="canvas-2"></div>
+        <span class="corner-tick ct-tl"></span><span class="corner-tick ct-tr"></span><span class="corner-tick ct-bl"></span><span class="corner-tick ct-br"></span>
+        <span class="dwg-tag">DWG&#8209;02 &nbsp;<b>DEPLOYMENT TOPOLOGY</b>&nbsp; · SCALE: NTS</span>
+      </div>
+    </section>
+
+    <section class="sheet" id="sheet-3" data-title="DATA FLOW &amp; CLASSIFICATION">
+      <div class="sheet-toolbar">
+        <p class="sheet-desc">Where PII enters, where it is scrubbed, and how tenant data decays or is permanently erased across storage tiers. Node color encodes data classification, not cloud.</p>
+      </div>
+      <div class="canvas"><div class="canvas-inner" id="canvas-3"></div>
+        <span class="corner-tick ct-tl"></span><span class="corner-tick ct-tr"></span><span class="corner-tick ct-bl"></span><span class="corner-tick ct-br"></span>
+        <span class="dwg-tag">DWG&#8209;03 &nbsp;<b>DATA FLOW &amp; CLASSIFICATION</b>&nbsp; · SCALE: NTS</span>
+      </div>
+    </section>
+
+    <section class="sheet" id="sheet-4" data-title="SECURITY &amp; TRUST BOUNDARIES">
+      <div class="sheet-toolbar">
+        <p class="sheet-desc">Identity, secrets and tenant isolation across the trust boundary. Every identity below is scoped to the minimum it needs — the orchestrator alone can permanently delete tenant data.</p>
+      </div>
+      <div class="canvas"><div class="canvas-inner" id="canvas-4"></div>
+        <span class="corner-tick ct-tl"></span><span class="corner-tick ct-tr"></span><span class="corner-tick ct-bl"></span><span class="corner-tick ct-br"></span>
+        <span class="dwg-tag">DWG&#8209;04 &nbsp;<b>SECURITY &amp; TRUST BOUNDARIES</b>&nbsp; · SCALE: NTS</span>
+      </div>
+    </section>
+
+    <section class="sheet" id="sheet-5" data-title="RUNTIME SEQUENCE · CRITICAL PATH">
+      <div class="sheet-toolbar">
+        <p class="sheet-desc">Two processes that matter operationally: an evaluation-mining sweep, and a GDPR erasure saga surviving a mid-flight crash. Step through with the transport controls.</p>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+          <div class="seg" id="seqToggle" role="group" aria-label="Choose sequence">
+            <button class="on" data-seq="A">EVAL-MINING SWEEP</button>
+            <button data-seq="B">GDPR ERASURE SAGA</button>
+          </div>
+          <div class="transport">
+            <button class="tbtn" id="seqPrev" aria-label="Previous step" title="Previous step">
+              <svg width="12" height="12" viewBox="0 0 12 12"><path d="M9 1L3 6L9 11" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+            </button>
+            <button class="tbtn" id="seqPlay" aria-label="Play" title="Play / pause">
+              <svg width="12" height="12" viewBox="0 0 12 12" id="playIcon"><path d="M2 1L11 6L2 11Z" fill="currentColor"/></svg>
+            </button>
+            <button class="tbtn" id="seqNext" aria-label="Next step" title="Next step">
+              <svg width="12" height="12" viewBox="0 0 12 12"><path d="M3 1L9 6L3 11" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+            </button>
+            <span class="step-readout" id="stepReadout">0 / 0</span>
+          </div>
+        </div>
+      </div>
+      <div class="canvas"><div class="canvas-inner" id="canvas-5"></div>
+        <span class="corner-tick ct-tl"></span><span class="corner-tick ct-tr"></span><span class="corner-tick ct-bl"></span><span class="corner-tick ct-br"></span>
+        <span class="dwg-tag">DWG&#8209;05 &nbsp;<b>RUNTIME SEQUENCE</b>&nbsp; · SCALE: NTS</span>
+      </div>
+    </section>
+
+    <section class="sheet" id="sheet-6" data-title="RISK &amp; GAPS REGISTER">
+      <div class="sheet-toolbar">
+        <p class="sheet-desc">Thirteen known items — nine documented cloud-parity gaps and four open design questions carried over from the specs — plotted by impact and effort to close. Nothing here is a surprise; everything here has a name.</p>
+        <div class="seg" id="riskToggle" role="group" aria-label="Filter register">
+          <button class="on" data-cat="all">ALL</button>
+          <button data-cat="gap">GAPS</button>
+          <button data-cat="question">OPEN QUESTIONS</button>
+        </div>
+      </div>
+      <div class="canvas"><div class="canvas-inner" id="canvas-6"></div>
+        <span class="corner-tick ct-tl"></span><span class="corner-tick ct-tr"></span><span class="corner-tick ct-bl"></span><span class="corner-tick ct-br"></span>
+        <span class="dwg-tag">DWG&#8209;06 &nbsp;<b>RISK &amp; GAPS REGISTER</b>&nbsp; · SCALE: NTS</span>
+      </div>
+    </section>
+
+    <section class="sheet" id="sheet-7" data-title="CAPABILITY MAP">
+      <div class="sheet-toolbar">
+        <p class="sheet-desc">Seven governance capabilities and the systems that deliver them. Three capabilities are platform-wide — every system carries them — the rest map to exactly one system.</p>
+      </div>
+      <div class="canvas"><div class="canvas-inner" id="canvas-7"></div>
+        <span class="corner-tick ct-tl"></span><span class="corner-tick ct-tr"></span><span class="corner-tick ct-bl"></span><span class="corner-tick ct-br"></span>
+        <span class="dwg-tag">DWG&#8209;07 &nbsp;<b>CAPABILITY MAP</b>&nbsp; · SCALE: NTS</span>
+      </div>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <span><span class="pulse-dot"></span><span id="footStatus">SHEET 01 / 05 — SYSTEM CONTEXT</span></span>
+  <span id="footHint">Click any node for detail · Hover to trace connections</span>
+</footer>
+
+<script>
+(function(){
+  'use strict';
+  var REDUCE = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ============================= helpers ============================= */
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+  function orth(x1,y1,x2,y2,bend){
+    bend = bend===undefined ? .5 : bend;
+    var mx = x1 + (x2-x1)*bend;
+    return 'M'+x1+' '+y1+' L'+mx+' '+y1+' L'+mx+' '+y2+' L'+x2+' '+y2;
+  }
+  function vBend(x1,y1,x2,y2,bend){
+    bend = bend===undefined ? .5 : bend;
+    var my = y1 + (y2-y1)*bend;
+    return 'M'+x1+' '+y1+' L'+x1+' '+my+' L'+x2+' '+my+' L'+x2+' '+y2;
+  }
+
+  function typeColor(t){
+    return t==='aws' ? 'var(--signal)' : t==='azure' ? 'var(--azure)' : t==='critical' ? 'var(--critical)' : t==='warn' ? 'var(--warn)' : 'var(--shared)';
+  }
+
+  // rectangular "drafted" node with corner registration ticks
+  function node(key, x, y, w, h, title, cap, type, opts){
+    opts = opts || {};
+    var i = opts.i || 0;
+    var col = typeColor(type);
+    var titleSize = opts.titleSize || 13.5;
+    var lines = Array.isArray(title) ? title : [title];
+    var ty = y + h/2 - (lines.length-1)*8 - (cap? 6 : 0);
+    var titleTspans = lines.map(function(l,idx){
+      return '<tspan x="'+(x+14)+'" dy="'+(idx===0?0:16)+'">'+esc(l)+'</tspan>';
+    }).join('');
+    var tick = 7;
+    var pill = opts.pill ? '<rect x="'+(x+w-opts.pill.length*6-16)+'" y="'+(y+8)+'" width="'+(opts.pill.length*6+10)+'" height="15" rx="2" fill="none" stroke="'+col+'" opacity=".8"/><text class="tag-pill" x="'+(x+w-opts.pill.length*6-11)+'" y="'+(y+18.5)+'" font-size="8.6" fill="'+col+'">'+esc(opts.pill)+'</text>' : '';
+    return ''+
+    '<g class="node fadein" data-key="'+key+'" tabindex="0" role="button" aria-label="'+esc(lines.join(' '))+'" style="animation-delay:'+(i*55)+'ms" data-node="'+key+'">'+
+      '<rect class="nodebox" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="2" fill="var(--panel-raised)" stroke="'+col+'" stroke-width="1.4"/>'+
+      '<path d="M'+x+' '+(y+tick)+'V'+y+'H'+(x+tick)+'" fill="none" stroke="'+col+'" stroke-width="1.4"/>'+
+      '<path d="M'+(x+w-tick)+' '+y+'H'+(x+w)+'V'+(y+tick)+'" fill="none" stroke="'+col+'" stroke-width="1.4"/>'+
+      '<path d="M'+x+' '+(y+h-tick)+'V'+(y+h)+'H'+(x+tick)+'" fill="none" stroke="'+col+'" stroke-width="1.4"/>'+
+      '<path d="M'+(x+w-tick)+' '+(y+h)+'H'+(x+w)+'V'+(y+h-tick)+'" fill="none" stroke="'+col+'" stroke-width="1.4"/>'+
+      pill+
+      '<text class="node-title" x="'+(x+14)+'" y="'+ty+'" font-size="'+titleSize+'">'+titleTspans+'</text>'+
+      (cap ? '<text class="node-cap" x="'+(x+14)+'" y="'+(y+h-12)+'" font-size="10">'+esc(cap)+'</text>' : '')+
+    '</g>';
+  }
+
+  function edge(id, from, to, d, opts){
+    opts = opts || {};
+    var isDash = !!opts.dash;
+    var cls = 'edge'+(opts.critical?' edge-critical':'')+(isDash ? ' dash-live' : (REDUCE?'':' draw'));
+    var plAttr = isDash ? '' : ' pathLength="1"';
+    var style = (!isDash && opts.i!==undefined && !REDUCE) ? ' style="animation-delay:'+(400+opts.i*70)+'ms"' : '';
+    var marker = ' marker-end="url(#arrow-'+opts.sheet+')"';
+    return '<path class="'+cls+'" data-from="'+from+'" data-to="'+to+'"'+plAttr+' d="'+d+'"'+style+marker+' id="'+id+'"/>';
+  }
+
+  function edgeLabel(x,y,text,anchor){
+    return '<text class="edge-label" x="'+x+'" y="'+y+'" font-size="10" text-anchor="'+(anchor||'middle')+'">'+esc(text)+'</text>';
+  }
+
+  function arrowDefs(n, color){
+    color = color || 'var(--mist)';
+    return '<defs><marker id="arrow-'+n+'" markerWidth="8" markerHeight="8" refX="6.5" refY="3" orient="auto"><path d="M0 0L7 3L0 6Z" fill="'+color+'"/></marker></defs>';
+  }
+
+  /* traveling dot along a path (idle ambient motion) */
+  function travelDot(pathId, dur, color, delay){
+    if(REDUCE) return '';
+    return '<circle r="3" fill="'+color+'"><animateMotion dur="'+dur+'s" begin="'+(delay||0)+'s" repeatCount="indefinite"><mpath href="#'+pathId+'"/></animateMotion></circle>';
+  }
+
+  /* ============================= drawer ============================= */
+  var DETAILS = {};
+  var drawer = document.getElementById('drawer');
+  var scrim = document.getElementById('scrim');
+  var drawerTitle = document.getElementById('drawerTitle');
+  var drawerTag = document.getElementById('drawerTag');
+  var drawerBody = document.getElementById('drawerBody');
+
+  function openDrawer(key){
+    var d = DETAILS[key];
+    if(!d) return;
+    drawerTitle.textContent = d.title;
+    drawerTag.textContent = d.tag;
+    drawerTag.style.color = typeColor(d.type);
+    var html = '<p>'+d.desc+'</p>';
+    if(d.specs && d.specs.length){
+      html += '<table class="spec-table">'+d.specs.map(function(s){
+        return '<tr><td>'+esc(s[0])+'</td><td>'+s[1]+'</td></tr>';
+      }).join('')+'</table>';
+    }
+    if(d.cloud){
+      html += '<div class="cloud-split">'+
+        '<div class="cloud-card aws"><h4>AWS</h4><div>'+d.cloud.aws+'</div></div>'+
+        '<div class="cloud-card azure"><h4>AZURE</h4><div>'+d.cloud.azure+'</div></div>'+
+      '</div>';
+    }
+    drawerBody.innerHTML = html;
+    drawer.classList.add('open');
+    scrim.classList.add('open');
+    drawer.setAttribute('aria-hidden','false');
+  }
+  function closeDrawer(){
+    drawer.classList.remove('open');
+    scrim.classList.remove('open');
+    drawer.setAttribute('aria-hidden','true');
+  }
+  document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+  scrim.addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeDrawer(); });
+
+  function wireNodes(container){
+    container.querySelectorAll('.node[data-key]').forEach(function(el){
+      el.addEventListener('click', function(){ openDrawer(el.getAttribute('data-key')); });
+      el.addEventListener('keydown', function(e){
+        if(e.key==='Enter' || e.key===' '){ e.preventDefault(); openDrawer(el.getAttribute('data-key')); }
+      });
+    });
+    container.querySelectorAll('.node[data-node]').forEach(function(el){
+      var id = el.getAttribute('data-node');
+      el.addEventListener('mouseenter', function(){ highlight(container, id); });
+      el.addEventListener('mouseleave', function(){ clearHighlight(container); });
+      el.addEventListener('focus', function(){ highlight(container, id); });
+      el.addEventListener('blur', function(){ clearHighlight(container); });
+    });
+  }
+  function highlight(container, id){
+    var edges = container.querySelectorAll('.edge');
+    var nodes = container.querySelectorAll('.node[data-node]');
+    var related = new Set([id]);
+    edges.forEach(function(e){
+      var f=e.getAttribute('data-from'), t=e.getAttribute('data-to');
+      if(f===id || t===id){ e.classList.add('hi'); related.add(f); related.add(t); }
+      else e.classList.add('dim');
+    });
+    nodes.forEach(function(n){
+      var nid = n.getAttribute('data-node');
+      if(!related.has(nid)) n.classList.add('dim'); else n.classList.add('hi');
+    });
+  }
+  function clearHighlight(container){
+    container.querySelectorAll('.edge').forEach(function(e){ e.classList.remove('hi','dim'); });
+    container.querySelectorAll('.node').forEach(function(n){ n.classList.remove('hi','dim'); });
+  }
+
+  /* ============================= SHEET 1 — system context ============================= */
+  function sheet1(){
+    var W=1280,H=620;
+    var svg = '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="System context diagram">'+
+      arrowDefs(1)+
+
+      node('tenant-app', 30, 40, 210, 70, 'Tenant Application', 'external · sends prompt/response traffic', 'shared', {i:0}) +
+      node('dsar', 30, 250, 210, 70, 'DSAR Requester', 'privacy / compliance officer', 'shared', {i:1}) +
+      node('oncall', 30, 460, 210, 70, 'On-Call Engineer', 'reads dashboards &amp; saved queries', 'shared', {i:2}) +
+
+      node('ingestion', 320, 40, 260, 80, ['Ingestion & Redaction'], 'multi-tenant-ingestion', 'aws', {i:1,pill:'SYSTEM'}) +
+      node('wipeout', 320, 250, 260, 80, ['Data Versioning &amp; Wipeout'], 'data-versioning', 'aws', {i:2,pill:'SYSTEM'}) +
+      node('autorater', 320, 460, 260, 80, ['Evaluation Mining &amp; Autorater'], 'autorater', 'aws', {i:3,pill:'SYSTEM'}) +
+
+      node('lake', 660, 260, 190, 100, ['Tenant Data Lake'], 'tenants/<id>/YYYY/MM/DD', 'shared', {i:4,pill:'STORE'}) +
+
+      node('openrouter', 960, 140, 230, 70, 'OpenRouter', 'LLM-as-Judge provider', 'shared', {i:5}) +
+      node('alertch', 960, 380, 230, 70, 'Slack + PagerDuty', 'alert channels', 'shared', {i:5}) +
+
+      /* edges */
+      edge('e1','tenant-app','ingestion', orth(240,75,320,80,.55), {sheet:1,i:0}) +
+      edge('e2','ingestion','lake', orth(580,90,660,290,.6), {sheet:1,i:1}) +
+      edge('e3','lake','autorater', vBend(755,360,450,460,.55), {sheet:1,i:2}) +
+      edge('e4','autorater','openrouter', orth(580,495,960,175,.5), {sheet:1,i:3}) +
+      edge('e5','autorater','alertch', orth(580,520,960,415,.5), {sheet:1,i:4}) +
+      edge('e6','dsar','wipeout', orth(240,285,320,290,.5), {sheet:1,i:5}) +
+      edge('e7','wipeout','lake', vBend(580,300,660,320,.4), {sheet:1,i:6,critical:true,dash:true}) +
+      edge('e8','oncall','ingestion', vBend(135,460,320,90,.35), {sheet:1,i:7,dash:true}) +
+      edge('e9','oncall','wipeout', orth(240,495,320,300,.4), {sheet:1,i:7,dash:true}) +
+      edge('e10','oncall','autorater', orth(240,505,320,500,.4), {sheet:1,i:7,dash:true}) +
+
+      edgeLabel(280,63,'traffic') +
+      edgeLabel(620,175,'redacted records') +
+      edgeLabel(500,435,'poll since cursor') +
+      edgeLabel(770,300,'judge calls',   'start') +
+      edgeLabel(770,455,'alerts ≥ high', 'start') +
+      edgeLabel(280,272,'POST /v1/forget') +
+      edgeLabel(615,235,'tenant purge','start') +
+
+      travelDot('e1',5,'var(--signal)',0) +
+      travelDot('e2',5,'var(--signal)',.6) +
+      travelDot('e4',6,'var(--azure)',1) +
+      travelDot('e5',6,'var(--warn)',2) +
+    '</svg>';
+
+    document.getElementById('canvas-1').innerHTML = svg;
+    wireNodes(document.getElementById('canvas-1'));
+
+    DETAILS['tenant-app'] = {tag:'ACTOR', type:'shared', title:'Tenant Application',
+      desc:'External client application sending live prompt/response traffic on behalf of an end user. One deployment serves many tenants — every record is tenant-scoped from the first byte.',
+      specs:[['Auth','Per-tenant, at the ingestion edge'],['Payload','prompt, response, lang, client platform/OS, serving model']]};
+    DETAILS['dsar'] = {tag:'ACTOR', type:'shared', title:'DSAR Requester',
+      desc:'Privacy or compliance staff filing a Data Subject Access Request for erasure. Triggers the GDPR wipeout saga — a destructive, audited path.',
+      specs:[['Entry point','POST /v1/forget'],['Auth','Bearer token, certified=true required']]};
+    DETAILS['oncall'] = {tag:'ACTOR', type:'shared', title:'On-Call Engineer',
+      desc:'Consumes the standardized JSON log envelope through five saved slice queries per system — by tenant, failure mode, language, client, and serving model — without hand-writing queries during an incident.'};
+    DETAILS['ingestion'] = {tag:'SYSTEM · repo: multi-tenant-ingestion', type:'aws', title:'Ingestion & Redaction',
+      desc:'Go API accepts and queues traffic; a Python worker consumes the queue, redacts PII in place, and commits the record into the tenant-prefixed data lake.',
+      specs:[['Compute','ECS Fargate ⇄ Container Apps'],['Queue','SQS+DLQ ⇄ Service Bus'],['Store','S3+KMS ⇄ Blob+Key Vault CMK']]};
+    DETAILS['wipeout'] = {tag:'SYSTEM · repo: data-versioning', type:'aws', title:'Data Versioning & Wipeout',
+      desc:'datavault gives every evaluation dataset a content-addressed, verifiable lineage; a Go saga engine executes certified right-to-erasure requests as a checkpointed, crash-safe state machine across hot/cold/archive tiers.',
+      specs:[['Pattern','Saga: hot → cold → archive → metadata'],['Resume','Boot sweep + periodic 60s sweep'],['Deletion authority','Orchestrator identity only']]};
+    DETAILS['autorater'] = {tag:'SYSTEM · repo: autorater', type:'aws', title:'Evaluation Mining & Autorater',
+      desc:'Async Python miner sweeps the (already-redacted) data lake for runtime failures and safety violations, cost-gates cases through semantic dedup, scores survivors with an LLM-as-Judge, and pages on-call through a Go alerting service.',
+      specs:[['Judge','OpenRouter, Claude Sonnet 5 · reasoning effort: medium'],['Cost gate','Jaccard ≥ 0.8 semantic dedup before any judge call']]};
+    DETAILS['lake'] = {tag:'SHARED STORE', type:'shared', title:'Tenant Data Lake',
+      desc:'The connective tissue of the platform: written once by Ingestion, polled continuously by Autorater, and the literal target of the Wipeout saga\'s destructive purge.',
+      specs:[['Key scheme','tenants/&lt;tenant_id&gt;/YYYY/MM/DD/*'],['Encryption','KMS CMK ⇄ Key Vault CMK'],['Isolation','Per-tenant prefix policy / ABAC condition']]};
+    DETAILS['openrouter'] = {tag:'EXTERNAL', type:'shared', title:'OpenRouter',
+      desc:'OpenAI-compatible chat completions API fronting the LLM-as-Judge. Model and reasoning effort are pure configuration — swapping providers or models never touches code.',
+      specs:[['Default model','anthropic/claude-sonnet-5'],['Temperature','0'],['Fallback','MockJudge when no API key is present (tests / local)']]};
+    DETAILS['alertch'] = {tag:'EXTERNAL', type:'shared', title:'Slack + PagerDuty',
+      desc:'Severity-routed alert channels. Deduplicated by fingerprint on a 15-minute TTL before dispatch, so one bad deploy pages once, not a thousand times.',
+      specs:[['high','Slack only'],['critical','Slack + PagerDuty (Events v2)']]};
+  }
+
+  /* ============================= SHEET 2 — deployment topology ============================= */
+  function sheet2(){
+    var W=1280;
+    var laneHeaderH=34, rowH=42, rowGap=6, laneGap=22;
+    var colAwsX=40, colAwsW=430, midX=635, colAzureX=760, colAzureW=430;
+
+    var lanes = [
+      {name:'INGESTION & REDACTION', rows:[
+        ['Compute','ECS Fargate (API + Worker)','Container Apps (API + Worker)',false],
+        ['Queue','SQS + DLQ (max_delivery_count 5)','Service Bus Queue — built-in DLQ',false],
+        ['Data Lake','S3 + KMS CMK','Blob + Key Vault CMK',false],
+        ['Tenant Isolation','IAM prefix policy','RBAC + ABAC path condition',false],
+        ['Secrets','SSM Parameter Store','Key Vault',false],
+      ]},
+      {name:'DATA VERSIONING & WIPEOUT', rows:[
+        ['Compute','ECS Fargate (Orchestrator)','Container App (Orchestrator)',false],
+        ['Tier Storage','S3 × 3 (hot / cold / archive)','Blob × 3 containers',false],
+        ['Secrets','SSM (API_TOKEN)','Key Vault (API-TOKEN)',false],
+        ['On-call Queries','CloudWatch Logs Insights','Log Analytics + KQL',false],
+      ]},
+      {name:'EVALUATION MINING & AUTORATER', rows:[
+        ['Schedule','EventBridge cron → ECS RunTask','Container Apps Job — cron trigger',false],
+        ['Alerting Compute','ECS, scale-to-zero (Step Fn + Cloud Map)','Container App, always-on ×2',true],
+        ['Cursor + Lease','DynamoDB (conditional PutItem)','Table Storage (insert + ETag)',false],
+        ['Results + Query','S3 + Glue + Athena','ADLS Gen2 + Synapse Serverless',false],
+        ['Secrets ×3','SSM','Key Vault',false],
+        ['Tracing','X-Ray (10% sampling)','App Insights (10% sampling)',false],
+      ]},
+    ];
+
+    var y = 30, i=0;
+    var body = '';
+    lanes.forEach(function(lane, li){
+      body += '<text x="'+colAwsX+'" y="'+(y+20)+'" font-family="var(--font-mono)" font-size="11.5" letter-spacing="1.5" fill="var(--paper)" class="fadein" style="animation-delay:'+(i*40)+'ms">'+esc(lane.name)+'</text>';
+      body += '<line x1="'+colAwsX+'" y1="'+(y+laneHeaderH-8)+'" x2="'+(colAzureX+colAzureW)+'" y2="'+(y+laneHeaderH-8)+'" stroke="var(--line)"/>';
+      y += laneHeaderH;
+      lane.rows.forEach(function(row){
+        var rowY = y;
+        var awsCol = row[3] ? 'critical' : 'aws';
+        var azCol = row[3] ? 'critical' : 'azure';
+        var key = 'l'+li+'-'+row[0].replace(/\s+/g,'');
+        body += '<g class="col-aws" data-cloud="aws">';
+        body += '<text class="fadein" style="animation-delay:'+(i*30)+'ms" x="'+colAwsX+'" y="'+(rowY+14)+'" font-family="var(--font-mono)" font-size="9.5" fill="var(--mist-dim)" letter-spacing=".08em">'+esc(row[0].toUpperCase())+'</text>';
+        body += node(key+'-aws', colAwsX, rowY+18, colAwsW, rowH, [row[1]], null, awsCol, {i:i, titleSize:12.3, pill: row[3]?'ASYMMETRIC':null});
+        body += '</g>';
+        body += '<g class="col-azure" data-cloud="azure">';
+        body += node(key+'-azure', colAzureX, rowY+18, colAzureW, rowH, [row[2]], null, azCol, {i:i+0.3, titleSize:12.3, pill: row[3]?'ASYMMETRIC':null});
+        body += '</g>';
+        body += '<g class="parity-mark" data-cloud="mark"><line x1="'+(colAwsX+colAwsW)+'" y1="'+(rowY+18+rowH/2)+'" x2="'+colAzureX+'" y2="'+(rowY+18+rowH/2)+'" stroke="'+(row[3]?'var(--critical)':'var(--line)')+'" stroke-width="1" stroke-dasharray="'+(row[3]?'3 3':'2 4')+'"/>';
+        body += '<circle cx="'+midX+'" cy="'+(rowY+18+rowH/2)+'" r="8" fill="var(--panel)" stroke="'+(row[3]?'var(--critical)':'var(--mist-dim)')+'" stroke-width="1"/>';
+        body += '<text x="'+midX+'" y="'+(rowY+18+rowH/2+3.5)+'" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="'+(row[3]?'var(--critical)':'var(--mist)')+'">'+(row[3]?'!':'=')+'</text></g>';
+
+        DETAILS[key+'-aws'] = {tag:lane.name+' · AWS', type:'aws', title:row[1],
+          desc: row[3] ? 'Documented asymmetry: AWS scales the alerting service from zero for the duration of a miner sweep via a Step Functions state machine, with Cloud Map providing stable in-VPC DNS for the miner to reach it.' : 'AWS implementation for this lane, symmetric with its Azure twin by Terraform variable convention.',
+          specs:[['Category',row[0]],['Cloud','AWS · us-east-1']]};
+        DETAILS[key+'-azure'] = {tag:lane.name+' · AZURE', type:'azure', title:row[2],
+          desc: row[3] ? 'Azure still runs alerting as an always-on 2-replica Container App. Native KEDA-based scale-to-zero (min_replicas=0 + a scale rule) is the natural fix — likely simpler than the AWS Step Functions orchestration, not just a translation.' : 'Azure implementation for this lane, symmetric with its AWS twin by Terraform variable convention.',
+          specs:[['Category',row[0]],['Cloud','Azure · eastus']]};
+
+        y += rowH + rowGap + 18;
+        i++;
+      });
+      y += laneGap;
+    });
+
+    var sharedY = y;
+    body += '<text x="'+colAwsX+'" y="'+(sharedY+20)+'" font-family="var(--font-mono)" font-size="11.5" letter-spacing="1.5" fill="var(--mist)">SHARED BASELINE — EVERY SYSTEM</text>';
+    body += '<line x1="'+colAwsX+'" y1="'+(sharedY+26)+'" x2="'+(colAzureX+colAzureW)+'" y2="'+(sharedY+26)+'" stroke="var(--line)"/>';
+    var shared = [
+      ['Terraform State','S3 backend + DynamoDB lock','azurerm backend + blob lease'],
+      ['CI Auth','GitHub OIDC → IAM role','GitHub OIDC → federated credential'],
+      ['Cost Tags','provider default_tags','local.common_tags per resource'],
+    ];
+    var sy = sharedY+40;
+    shared.forEach(function(row,idx){
+      var key='shared-'+idx;
+      body += node(key+'-aws', colAwsX, sy, colAwsW, rowH, [row[1]], row[0], 'shared', {i:0, titleSize:12.3});
+      body += node(key+'-azure', colAzureX, sy, colAzureW, rowH, [row[2]], row[0], 'shared', {i:0, titleSize:12.3});
+      body += '<line x1="'+(colAwsX+colAwsW)+'" y1="'+(sy+rowH/2)+'" x2="'+colAzureX+'" y2="'+(sy+rowH/2)+'" stroke="var(--line)" stroke-width="1" stroke-dasharray="2 4"/>';
+      body += '<circle cx="'+midX+'" cy="'+(sy+rowH/2)+'" r="8" fill="var(--panel)" stroke="var(--mist-dim)" stroke-width="1"/><text x="'+midX+'" y="'+(sy+rowH/2+3.5)+'" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--mist)">=</text>';
+      DETAILS[key+'-aws']={tag:'SHARED · AWS',type:'shared',title:row[1],desc:'Applies identically to all three systems on the AWS root.'};
+      DETAILS[key+'-azure']={tag:'SHARED · AZURE',type:'azure',title:row[2],desc:'Applies identically to all three systems on the Azure root.'};
+      sy += rowH + rowGap + 6;
+    });
+
+    var H = sy + 30;
+    body += '<text x="'+colAwsX+'" y="14" font-family="var(--font-mono)" font-size="10" letter-spacing=".14em" fill="var(--signal)">AWS · US-EAST-1</text>';
+    body += '<text x="'+(colAzureX)+'" y="14" font-family="var(--font-mono)" font-size="10" letter-spacing=".14em" fill="var(--azure)">AZURE · EASTUS</text>';
+
+    var svg = '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Deployment topology diagram">'+body+'</svg>';
+    document.getElementById('canvas-2').innerHTML = svg;
+    wireNodes(document.getElementById('canvas-2'));
+
+    var toggle = document.getElementById('cloudToggle');
+    toggle.addEventListener('click', function(e){
+      var btn = e.target.closest('button'); if(!btn) return;
+      toggle.querySelectorAll('button').forEach(function(b){ b.classList.remove('on'); });
+      btn.classList.add('on');
+      var view = btn.getAttribute('data-view');
+      var c = document.getElementById('canvas-2');
+      c.querySelectorAll('[data-cloud="aws"]').forEach(function(el){ el.style.opacity = (view==='azure') ? .12 : 1; });
+      c.querySelectorAll('[data-cloud="azure"]').forEach(function(el){ el.style.opacity = (view==='aws') ? .12 : 1; });
+      c.querySelectorAll('[data-cloud="mark"]').forEach(function(el){ el.style.opacity = (view==='both') ? 1 : .25; });
+    });
+  }
+
+  /* ============================= SHEET 3 — data flow & classification ============================= */
+  function classColor(c){ return c==='raw' ? 'var(--critical)' : c==='safe' ? 'var(--signal)' : 'var(--shared)'; }
+
+  function sheet3(){
+    var W=1280, H=680;
+    var y=160, h=76;
+    var nodes = [
+      {key:'traffic', x:30, w:150, title:['Tenant Traffic'], cap:'unclassified · contains PII', cls:'raw'},
+      {key:'api', x:222, w:150, title:['Ingestion API'], cap:'Go · tenant-authenticated', cls:'raw'},
+      {key:'queue', x:414, w:150, title:['Queue'], cap:'encrypted in transit', cls:'raw'},
+      {key:'gate', x:606, w:170, title:['Redaction Gate'], cap:'Python worker · in place', cls:'gate'},
+      {key:'dlake', x:826, w:190, title:['Tenant Data Lake'], cap:'CMK / Key Vault encrypted at rest', cls:'safe'},
+      {key:'miner', x:1064, w:186, title:['Autorater Miner'], cap:'polls since cursor', cls:'safe'},
+    ];
+    var body = arrowDefs(3);
+
+    body += '<g>'+
+      '<circle cx="46" cy="40" r="5" fill="'+classColor('raw')+'"/><text x="58" y="44" font-family="var(--font-mono)" font-size="10.5" fill="var(--mist)">RAW / PII</text>'+
+      '<circle cx="176" cy="40" r="5" fill="'+classColor('safe')+'"/><text x="188" y="44" font-family="var(--font-mono)" font-size="10.5" fill="var(--mist)">REDACTED / SAFE</text>'+
+      '<circle cx="360" cy="40" r="5" fill="'+classColor('derived')+'"/><text x="372" y="44" font-family="var(--font-mono)" font-size="10.5" fill="var(--mist)">DERIVED / AGGREGATE</text>'+
+    '</g>';
+
+    nodes.forEach(function(n,i){
+      body += node(n.key, n.x, y, n.w, h, n.title, n.cap, n.cls==='raw'?'critical':n.cls==='gate'?'critical':'aws', {i:i, titleSize:12.6});
+    });
+
+    for(var k=0;k<nodes.length-1;k++){
+      var a=nodes[k], b=nodes[k+1];
+      body += edge('flow'+k, a.key, b.key, 'M'+(a.x+a.w)+' '+(y+h/2)+' L'+b.x+' '+(y+h/2), {sheet:3, i:k});
+    }
+
+    // results lake branch
+    body += node('results', 1064, 380, 186, 76, ['Judged Results Lake'], 'dt= partitioned · queryable', 'shared', {i:6, titleSize:12.3});
+    body += edge('toResults','miner','results', vBend(1157,236,1157,380,.5), {sheet:3, i:6});
+
+    // tier branch (down from lake)
+    body += node('tiers', 826, 380, 190, 76, ['Version Tiers'], 'hot → cold → archive', 'aws', {i:7, titleSize:12.6});
+    body += edge('toTiers','dlake','tiers', vBend(921,236,921,380,.5), {sheet:3, i:7});
+
+    // GDPR purge (critical, dashed) from a DSAR node above lake, sweeping down through lake+tiers
+    body += node('dsar3', 826, 20, 190, 60, ['DSAR / Right-to-Erasure'], 'GDPR Art. 17', 'critical', {i:8, titleSize:12.3});
+    body += edge('purge1','dsar3','dlake', 'M921 80 L921 160', {sheet:3, i:8, critical:true, dash:true});
+    body += edge('purge2','dlake','tiers', 'M960 236 L960 380', {sheet:3, i:8, critical:true, dash:true});
+    body += edgeLabel(960, 330, 'permanent purge — tenants/<id>/*', 'start');
+
+    if(!REDUCE){
+      body += '<circle r="4" fill="'+classColor('raw')+'">'+
+        '<animateMotion dur="6s" repeatCount="indefinite" path="M105 198 L297 198 L489 198 L681 198 L921 198"/>'+
+        '<animate attributeName="fill" values="'+classColor('raw')+';'+classColor('raw')+';'+classColor('safe')+';'+classColor('safe')+'" keyTimes="0;0.58;0.6;1" dur="6s" repeatCount="indefinite"/>'+
+      '</circle>';
+      body += '<circle r="4" fill="'+classColor('safe')+'">'+
+        '<animateMotion dur="4s" begin="0s" repeatCount="indefinite" path="M921 198 L1157 198"/>'+
+      '</circle>';
+      body += '<circle r="4" fill="'+classColor('derived')+'">'+
+        '<animateMotion dur="3s" repeatCount="indefinite" path="M1157 236 L1157 380"/>'+
+      '</circle>';
+    }
+
+    var svg = '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Data flow and classification diagram">'+body+'</svg>';
+    document.getElementById('canvas-3').innerHTML = svg;
+    wireNodes(document.getElementById('canvas-3'));
+
+    DETAILS['traffic']={tag:'RAW / PII',type:'critical',title:'Tenant Traffic',desc:'Live prompt/response pairs arriving from a tenant application, unmodified. May contain names, contact details, or other personal data embedded in conversation text.'};
+    DETAILS['api']={tag:'RAW / PII',type:'critical',title:'Ingestion API',desc:'Go service that authenticates the tenant and accepts the record. Nothing is redacted yet — it only validates and queues.'};
+    DETAILS['queue']={tag:'RAW / PII',type:'critical',title:'Queue',desc:'SQS or Service Bus holds the record transiently, encrypted in transit, until a worker is free to redact and commit it.'};
+    DETAILS['gate']={tag:'REDACTION GATE',type:'critical',title:'Redaction Gate',desc:'The single point where sensitive content is scrubbed from prompt and response before anything is persisted. This is the classification boundary the whole diagram is built around — nothing downstream of this node has ever seen the raw text.',
+      specs:[['Runs in','Python worker, in-process']]};
+    DETAILS['dlake']={tag:'REDACTED / SAFE',type:'aws',title:'Tenant Data Lake',desc:'Redacted records land here under a tenant-prefixed key, encrypted at rest with a customer-managed key.',specs:[['Key scheme','tenants/&lt;id&gt;/YYYY/MM/DD/*']]};
+    DETAILS['miner']={tag:'REDACTED / SAFE',type:'aws',title:'Autorater Miner',desc:'Polls the lake for unprocessed records since its durable cursor. Everything it reads is already redacted — the mining pipeline never handles raw PII.'};
+    DETAILS['results']={tag:'DERIVED / AGGREGATE',type:'aws',title:'Judged Results Lake',desc:'Judge verdicts, scores and slice dimensions — derived, aggregable data safe for broad analytical query access.'};
+    DETAILS['tiers']={tag:'REDACTED / SAFE',type:'aws',title:'Version Tiers',desc:'Hot, cold and archive copies with decaying lifecycle policy (Hot→Cool/IA→Archive). Same classification as the source lake, same erasure obligation.'};
+    DETAILS['dsar3']={tag:'CRITICAL PATH',type:'critical',title:'DSAR / Right-to-Erasure',desc:'A certified erasure request triggers a saga that permanently purges the tenant\'s prefix across every tier — hot, cold, archive — and finally the metadata store, which is purged last because it is the erasure evidence itself.'};
+  }
+
+  /* ============================= SHEET 4 — security & trust boundaries ============================= */
+  function sheet4(){
+    var W=1280, H=780;
+    var body = arrowDefs(4);
+
+    // outer boundary
+    body += '<rect x="20" y="20" width="1240" height="740" fill="none" stroke="var(--mist-dim)" stroke-width="1" stroke-dasharray="6 5" rx="3"/>';
+    body += '<text x="36" y="44" font-family="var(--font-mono)" font-size="10.5" letter-spacing=".12em" fill="var(--mist)">UNTRUSTED — INTERNET</text>';
+
+    body += node('client4', 46, 62, 210, 62, 'Tenant Clients', 'external', 'shared', {i:0, titleSize:12.6});
+    body += node('dsar4', 286, 62, 210, 62, 'DSAR Requester', 'external', 'shared', {i:1, titleSize:12.6});
+    body += node('gha', 526, 62, 240, 62, 'GitHub Actions Runner', 'CI/CD, pre-auth', 'shared', {i:2, titleSize:12.6});
+
+    // inner boundary — cloud perimeter
+    body += '<rect x="60" y="176" width="1160" height="580" fill="rgba(79,216,196,0.02)" stroke="var(--signal-dim)" stroke-width="1" rx="3"/>';
+    body += '<text x="78" y="200" font-family="var(--font-mono)" font-size="10.5" letter-spacing=".12em" fill="var(--signal)">CLOUD PERIMETER — AWS ACCOUNT ⇄ AZURE SUBSCRIPTION</text>';
+
+    body += edge('oidc','gha','ingId', 'M646 124 L646 176', {sheet:4});
+    body += edgeLabel(660, 155, 'OIDC federation — no static keys', 'start');
+
+    var idents = [
+      {key:'ingId', x:90, title:['Ingestion','Identity'], cap:'sqs:SendMessage'},
+      {key:'workerId', x:300, title:['Worker','Identity'], cap:'s3:PutObject tenants/*'},
+      {key:'minerId', x:510, title:['Miner','Identity'], cap:'lake:Read · cursor:Write'},
+      {key:'alertId', x:720, title:['Alerting','Identity'], cap:'secrets:Read (2)'},
+      {key:'orchId', x:930, title:['Orchestrator','Identity'], cap:'tenant hard-delete', critical:true},
+    ];
+    idents.forEach(function(id,i){
+      body += node(id.key, id.x, 220, 190, 96, id.title, id.cap, id.critical?'critical':'aws', {i:i, titleSize:13, pill: id.critical?'CRITICAL':null});
+    });
+
+    body += node('secrets4', 380, 400, 320, 66, 'SSM Parameter Store / Key Vault', 'least-privilege secret reads', 'shared', {i:6, titleSize:12.3});
+    body += edge('s1','minerId','secrets4', vBend(605,316,540,400,.5), {sheet:4, i:0});
+    body += edgeLabel(560, 365, 'OPENROUTER_API_KEY', 'end');
+    body += edge('s2','alertId','secrets4', vBend(815,316,700,400,.5), {sheet:4, i:1});
+    body += edgeLabel(720, 380, 'SLACK / PAGERDUTY', 'start');
+    body += edge('s3','orchId','secrets4', vBend(1025,316,860,400,.5), {sheet:4, i:2, critical:true});
+    body += edgeLabel(880, 365, 'API_TOKEN', 'start');
+
+    body += '<rect x="120" y="520" width="960" height="90" fill="none" stroke="var(--mist-dim)" stroke-width="1" stroke-dasharray="4 4" rx="3"/>';
+    body += '<text x="140" y="544" font-family="var(--font-mono)" font-size="10.5" letter-spacing=".1em" fill="var(--mist)">TENANT ISOLATION FENCE — PREFIX-SCOPED WRITE, CROSS-TENANT READ DENIED</text>';
+    ['tenants/acme/*','tenants/globex/*','tenants/…/*'].forEach(function(t,i){
+      body += node('fence'+i, 140+i*310, 558, 280, 40, t, null, 'shared', {i:0, titleSize:11.5});
+    });
+    body += edge('fenceEdge','workerId','fence0', vBend(395,316,280,558,.5), {sheet:4, i:3});
+    body += edge('fenceEdge2','orchId','fence1', vBend(1025,316,590,558,.35), {sheet:4, i:3, critical:true});
+
+    body += edge('dsarGate','dsar4','orchId', vBend(391,124,1025,220,.6), {sheet:4, i:4, critical:true, dash:true});
+    body += edgeLabel(760, 175, 'bearer token gate — /v1/forget', 'middle');
+
+    if(!REDUCE){
+      body += '<rect x="60" y="176" width="1160" height="6" fill="url(#scangrad)" class="scanline"/>';
+      body += '<defs><linearGradient id="scangrad" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--signal)" stop-opacity="0"/><stop offset=".5" stop-color="var(--signal)" stop-opacity=".5"/><stop offset="1" stop-color="var(--signal)" stop-opacity="0"/></linearGradient></defs>';
+    }
+
+    var svg = '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Security and trust boundary diagram">'+body+'</svg>';
+    document.getElementById('canvas-4').innerHTML = svg;
+    wireNodes(document.getElementById('canvas-4'));
+
+    DETAILS['client4']={tag:'UNTRUSTED',type:'shared',title:'Tenant Clients',desc:'External applications sending traffic. Authenticated at the ingestion edge; hold no standing access to any cloud resource.'};
+    DETAILS['dsar4']={tag:'UNTRUSTED',type:'shared',title:'DSAR Requester',desc:'Crosses the trust boundary only through the bearer-token-gated /v1/forget endpoint — never granted direct infrastructure access.'};
+    DETAILS['gha']={tag:'UNTRUSTED · PRE-AUTH',type:'shared',title:'GitHub Actions Runner',desc:'Holds no long-lived credentials. Exchanges a short-lived OIDC token for a cloud role at deploy time.',
+      cloud:{aws:'sts:AssumeRoleWithWebIdentity → IAM role', azure:'Federated credential → azure/login'}};
+    DETAILS['ingId']={tag:'IDENTITY · LEAST PRIVILEGE',type:'aws',title:'Ingestion Identity',desc:'Can enqueue messages. Cannot read the data lake or any secret it does not own.',specs:[['Grants','sqs:SendMessage ⇄ Service Bus Sender']]};
+    DETAILS['workerId']={tag:'IDENTITY · LEAST PRIVILEGE',type:'aws',title:'Worker Identity',desc:'Writes redacted records under its tenant prefix only — the write path enforced by the tenant isolation fence below.',specs:[['Grants','s3:PutObject tenants/* ⇄ Blob Data Contributor + ABAC condition']]};
+    DETAILS['minerId']={tag:'IDENTITY · LEAST PRIVILEGE',type:'aws',title:'Miner Identity',desc:'Reads the lake, writes the results lake, reads/writes its own cursor and lease record, reads exactly one secret.',specs:[['Secret','OPENROUTER_API_KEY only']]};
+    DETAILS['alertId']={tag:'IDENTITY · LEAST PRIVILEGE',type:'aws',title:'Alerting Identity',desc:'Holds no data-plane access at all — only the two channel webhook secrets it dispatches to.',specs:[['Secrets','SLACK_WEBHOOK_URL, PAGERDUTY_ROUTING_KEY']]};
+    DETAILS['orchId']={tag:'IDENTITY · CRITICAL',type:'critical',title:'Orchestrator Identity',desc:'The one identity in the entire platform authorized to permanently delete tenant data. Deliberately concentrated and narrow — every other identity is denied this capability.',
+      specs:[['AWS grant','s3:DeleteObjectVersion'],['Azure grant','Blob Data Contributor, tier containers only'],['Gate','Bearer-token DSAR API in front of it']]};
+    DETAILS['secrets4']={tag:'SECRET STORE',type:'shared',title:'SSM Parameter Store / Key Vault',desc:'Every secret is declared in Terraform with a placeholder value and ignore_changes — real values are set once, out of band, never through CI.'};
+    DETAILS['fence0']=DETAILS['fence1']=DETAILS['fence2']={tag:'ISOLATION',type:'shared',title:'Tenant Prefix Fence',desc:'Enforced at the authorization layer, not just by convention: an AWS IAM condition or an Azure ABAC condition denies any write outside the caller\'s own tenant prefix.'};
+  }
+
+  /* ============================= SHEET 5 — runtime sequence ============================= */
+  var SEQ_A = {
+    lanes:['Scheduler','Miner','Dedup Gate','Judge (OpenRouter)','Results Lake','Alerting → Slack/PD'],
+    steps:[
+      {f:0,t:1,label:'trigger sweep (cron)',event:'—'},
+      {f:1,t:1,label:'acquire lease (cursor store)',event:'lease acquired',note:'2nd concurrent launch: ConditionalCheckFailed → exit 0, no double-processing'},
+      {f:1,t:1,label:'poll lake since cursor',event:'—'},
+      {f:1,t:2,label:'classify_failure + safety check',event:'—'},
+      {f:1,t:2,label:'dedup gate: Jaccard ≥ 0.8?',event:'—',note:'duplicate → suppressed, counted, judge never called'},
+      {f:1,t:3,label:'score novel case',event:'case_judged'},
+      {f:3,t:1,label:'verdict (or fallback on failure)',event:'judge_fallback',note:'HTTP/parse failure → degraded/50, judge_failures++, sweep continues'},
+      {f:1,t:4,label:'write judged row',event:'—'},
+      {f:1,t:5,label:'POST /v1/alerts (severity ≥ high)',event:'alert_dispatched',note:'high → Slack · critical → Slack + PagerDuty'},
+      {f:1,t:1,label:'release lease',event:'—'},
+      {f:1,t:0,label:'sweep_summary logged',event:'sweep_summary'},
+    ]
+  };
+  var SEQ_B = {
+    lanes:['DSAR Requester','Wipeout API','Saga Engine','Checkpoint Store','Tiers (Hot/Cold/Archive/Metadata)'],
+    steps:[
+      {f:0,t:1,label:'POST /v1/forget (bearer, certified=true)',event:'—'},
+      {f:1,t:1,label:'auth check',event:'auth_rejected',note:'missing/invalid token → rejected before any destructive work'},
+      {f:1,t:2,label:'create saga BEFORE any deletion',event:'wipeout_accepted',note:'idempotency key = request_id'},
+      {f:2,t:4,label:'purge hot tier',event:'tier_purged'},
+      {f:2,t:3,label:'checkpoint(hot=done)',event:'—'},
+      {f:4,t:4,label:'— process restarts —',event:'crash',note:'simulated crash between steps'},
+      {f:2,t:3,label:'boot: reload incomplete sagas',event:'resume_sweep',note:'hot is NEVER re-executed — checkpoint already marks it done'},
+      {f:2,t:4,label:'resume: purge cold → archive → metadata (last)',event:'tier_purged ×3'},
+      {f:2,t:3,label:'checkpoint(completed)',event:'saga_completed'},
+    ]
+  };
+
+  var seqState = { which:'A', idx:0, playing:false, timer:null };
+
+  function renderSequence(){
+    var data = seqState.which==='A' ? SEQ_A : SEQ_B;
+    var W=1280;
+    var laneX0=60, laneGap=(W-120)/(data.lanes.length-1);
+    var top=70, rowH=54;
+    var H = top + data.steps.length*rowH + 60;
+
+    var body = arrowDefs(5);
+    var laneXs = data.lanes.map(function(_,i){ return laneX0 + i*laneGap; });
+
+    // lane headers + lifelines
+    data.lanes.forEach(function(name,i){
+      body += node('lane5-'+i, laneXs[i]-80, 20, 160, 42, name, null, 'shared', {i:i, titleSize:11.6});
+      body += '<line x1="'+laneXs[i]+'" y1="62" x2="'+laneXs[i]+'" y2="'+(H-30)+'" stroke="var(--line)" stroke-width="1"/>';
+      DETAILS['lane5-'+i] = {tag:'LIFELINE', type:'shared', title:name, desc:'Participant in the '+(seqState.which==='A'?'evaluation-mining sweep.':'GDPR erasure saga.')};
+    });
+
+    data.steps.forEach(function(s,i){
+      var y = top + i*rowH + 30;
+      var x1 = laneXs[s.f], x2 = laneXs[s.t];
+      var isSelf = s.f===s.t;
+      var isCrash = s.event==='crash';
+      var color = isCrash ? 'var(--critical)' : (s.event && s.event.indexOf('fallback')>-1) ? 'var(--warn)' : 'var(--mist)';
+
+      if(isCrash){
+        body += '<line x1="'+(laneX0-20)+'" y1="'+y+'" x2="'+(W-40)+'" y2="'+y+'" stroke="var(--critical)" stroke-width="1" stroke-dasharray="6 4"/>';
+        body += '<text x="'+(W/2)+'" y="'+(y-8)+'" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" fill="var(--critical)" letter-spacing=".08em">'+esc(s.label.toUpperCase())+'</text>';
+      } else if(isSelf){
+        body += '<path class="seq-msg" data-step="'+i+'" d="M'+x1+' '+y+' q40 0 40 16 q0 16 -40 16" fill="none" stroke="'+color+'" stroke-width="1.3" marker-end="url(#arrow-5)"/>';
+        body += '<text class="seq-label" data-step="'+i+'" x="'+(x1+50)+'" y="'+(y+8)+'" font-family="var(--font-mono)" font-size="10.5" fill="var(--mist)">'+esc(s.label)+'</text>';
+      } else {
+        body += '<line class="seq-msg" data-step="'+i+'" x1="'+x1+'" y1="'+y+'" x2="'+x2+'" y2="'+y+'" stroke="'+color+'" stroke-width="1.3" marker-end="url(#arrow-5)"/>';
+        var midx=(x1+x2)/2;
+        body += '<text class="seq-label" data-step="'+i+'" x="'+midx+'" y="'+(y-7)+'" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" fill="var(--mist)">'+esc(s.label)+'</text>';
+      }
+      if(s.event && s.event!=='—' && !isCrash){
+        body += '<text x="'+(isSelf? x1+50 : (x1+x2)/2)+'" y="'+(y+ (isSelf?24:16))+'" text-anchor="'+(isSelf?'start':'middle')+'" font-family="var(--font-mono)" font-size="9" fill="var(--signal)">'+esc(s.event)+'</text>';
+      }
+      if(s.note){
+        body += '<text x="'+(laneX0-20)+'" y="'+(y+ (isSelf?40:26))+'" font-family="var(--font-mono)" font-size="9.5" fill="var(--mist-dim)" font-style="italic">'+esc(s.note)+'</text>';
+      }
+    });
+
+    // time cursor overlay
+    body += '<line id="seqCursor" x1="'+(laneX0-30)+'" y1="'+(top+30)+'" x2="'+(W-30)+'" y2="'+(top+30)+'" stroke="var(--signal)" stroke-width="1.5" opacity="0"/>';
+
+    var svg = '<svg viewBox="0 0 '+W+' '+H+'" id="seqSvg" role="img" aria-label="Runtime sequence diagram">'+body+'</svg>';
+    var container = document.getElementById('canvas-5');
+    container.innerHTML = svg;
+    wireNodes(container);
+    seqState.idx = 0;
+    updateSeqCursor(container, data);
+    document.getElementById('stepReadout').textContent = '0 / '+data.steps.length;
+  }
+
+  function updateSeqCursor(container, data){
+    var top=70, rowH=54;
+    container.querySelectorAll('.seq-msg,.seq-label').forEach(function(el){ el.style.opacity = '.35'; });
+    var cursor = container.querySelector('#seqCursor');
+    if(seqState.idx<=0){
+      cursor.setAttribute('opacity','0');
+      return;
+    }
+    var i = seqState.idx-1;
+    var y = top + i*rowH + 30;
+    cursor.setAttribute('y1',y+14); cursor.setAttribute('y2',y+14);
+    cursor.setAttribute('opacity','.9');
+    for(var k=0;k<=i;k++){
+      container.querySelectorAll('[data-step="'+k+'"]').forEach(function(el){ el.style.opacity = k===i ? '1' : '.75'; });
+    }
+  }
+
+  function seqGoto(idx){
+    var data = seqState.which==='A' ? SEQ_A : SEQ_B;
+    seqState.idx = Math.max(0, Math.min(data.steps.length, idx));
+    var container = document.getElementById('canvas-5');
+    updateSeqCursor(container, data);
+    document.getElementById('stepReadout').textContent = seqState.idx+' / '+data.steps.length;
+  }
+
+  function seqPlayToggle(){
+    var playIcon = document.getElementById('playIcon');
+    if(seqState.playing){
+      clearInterval(seqState.timer);
+      seqState.playing = false;
+      playIcon.innerHTML = '<path d="M2 1L11 6L2 11Z" fill="currentColor"/>';
+    } else {
+      var data = seqState.which==='A' ? SEQ_A : SEQ_B;
+      if(seqState.idx>=data.steps.length) seqState.idx = 0;
+      seqState.playing = true;
+      playIcon.innerHTML = '<rect x="1.5" y="1" width="3.2" height="10" fill="currentColor"/><rect x="7.3" y="1" width="3.2" height="10" fill="currentColor"/>';
+      seqState.timer = setInterval(function(){
+        seqState.idx++;
+        if(seqState.idx>data.steps.length){ seqPlayToggle(); return; }
+        seqGoto(seqState.idx);
+      }, 1300);
+    }
+  }
+
+  function sheet5(){
+    renderSequence();
+    document.getElementById('seqToggle').addEventListener('click', function(e){
+      var btn=e.target.closest('button'); if(!btn) return;
+      this.querySelectorAll('button').forEach(function(b){b.classList.remove('on');});
+      btn.classList.add('on');
+      seqState.which = btn.getAttribute('data-seq');
+      if(seqState.playing) seqPlayToggle();
+      renderSequence();
+    });
+    document.getElementById('seqPrev').addEventListener('click', function(){ if(seqState.playing) seqPlayToggle(); seqGoto(seqState.idx-1); });
+    document.getElementById('seqNext').addEventListener('click', function(){ if(seqState.playing) seqPlayToggle(); seqGoto(seqState.idx+1); });
+    document.getElementById('seqPlay').addEventListener('click', seqPlayToggle);
+  }
+
+  /* ============================= SHEET 6 — risk & gaps register ============================= */
+  function sheet6(){
+    var W=1280, H=700;
+    var X0=160, X1=1180, Y0=90, Y1=650, XM=670, YM=370;
+    var body = '';
+
+    // quadrant dividers
+    body += '<line x1="'+XM+'" y1="'+Y0+'" x2="'+XM+'" y2="'+Y1+'" stroke="var(--line)" stroke-dasharray="4 4"/>';
+    body += '<line x1="'+X0+'" y1="'+YM+'" x2="'+X1+'" y2="'+YM+'" stroke="var(--line)" stroke-dasharray="4 4"/>';
+
+    // axes
+    body += '<text x="'+((X0+X1)/2)+'" y="'+(Y1+34)+'" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" letter-spacing=".1em" fill="var(--mist)">EFFORT TO CLOSE →</text>';
+    body += '<text x="'+(X0-46)+'" y="'+((Y0+Y1)/2)+'" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" letter-spacing=".1em" fill="var(--mist)" transform="rotate(-90 '+(X0-46)+' '+((Y0+Y1)/2)+')">IMPACT IF UNADDRESSED →</text>';
+
+    // quadrant labels
+    body += '<text x="'+(X0+6)+'" y="'+(Y0-10)+'" font-family="var(--font-mono)" font-size="10.5" letter-spacing=".08em" fill="var(--signal)">DO NEXT</text>';
+    body += '<text x="'+(X1-6)+'" y="'+(Y0-10)+'" text-anchor="end" font-family="var(--font-mono)" font-size="10.5" letter-spacing=".08em" fill="var(--critical)">PLAN CAREFULLY</text>';
+    body += '<text x="'+(X0+6)+'" y="'+(Y1+18)+'" font-family="var(--font-mono)" font-size="10.5" letter-spacing=".08em" fill="var(--mist)">QUICK WINS</text>';
+    body += '<text x="'+(X1-6)+'" y="'+(Y1+18)+'" text-anchor="end" font-family="var(--font-mono)" font-size="10.5" letter-spacing=".08em" fill="var(--mist-dim)">BACKLOG</text>';
+
+    // legend
+    body += '<circle cx="200" cy="40" r="5" fill="var(--shared)"/><text x="212" y="44" font-family="var(--font-mono)" font-size="10.5" fill="var(--mist)">GAP — documented, known</text>';
+    body += '<circle cx="470" cy="40" r="5" fill="var(--warn)"/><text x="482" y="44" font-family="var(--font-mono)" font-size="10.5" fill="var(--mist)">OPEN QUESTION — undecided</text>';
+
+    var items = [
+      {key:'g1', x:344, y:493, cat:'gap', id:'G1', title:'Azure Alerting Scale-to-Zero', system:'autorater',
+        desc:'AWS scales the alerting service from zero for the duration of a miner sweep via Step Functions + Cloud Map; Azure still runs it as an always-on 2-replica Container App. Azure Container Apps have native KEDA-based scale-to-zero — likely simpler to close than the AWS orchestration was to build.',
+        impact:'Low (cost only)', effort:'Low', source:'docs/cloud-portability.md, gap #6'},
+      {key:'g2', x:690, y:269, cat:'gap', id:'G2', title:'Synapse Queries Not Terraform-Managed', system:'autorater',
+        desc:'Athena named queries have no azurerm equivalent resource, so the seven Synapse serverless translations ship as a plain .sql file, applied manually or via a CD step rather than declared in state.',
+        impact:'Medium (manual step can drift)', effort:'Medium', source:'docs/cloud-portability.md, gap #1'},
+      {key:'g3', x:792, y:527, cat:'gap', id:'G3', title:'Blob Listing Has No StartAfter', system:'autorater',
+        desc:'BlobSource resumes by filtering a full lexicographic listing client-side instead of an S3-style StartAfter cursor — same correctness and resume guarantee, but O(prefix) listing cost instead of O(unprocessed). Fine at current pipeline scale.',
+        impact:'Low today', effort:'Medium', source:'docs/cloud-portability.md, gap #3'},
+      {key:'g4', x:313, y:325, cat:'gap', id:'G4', title:'Container Apps Job Cron Semantics', system:'autorater',
+        desc:'The Azure cron expression is the direct translation of the AWS rate() schedule, but Container Apps Jobs have their own timezone and precision semantics that haven’t been verified against the actual SLA required.',
+        impact:'Medium (scheduling drift risk)', effort:'Low (verification, not a rebuild)', source:'docs/cloud-portability.md, gap #4'},
+      {key:'g5', x:466, y:566, cat:'gap', id:'G5', title:'Trivy Azure Ruleset Coverage', system:'autorater',
+        desc:'CI runs Trivy’s config scanner on both IaC roots, but its azurerm ruleset has less first-party rule coverage than its AWS ruleset — expect a thinner, different noise profile on the Azure side.',
+        impact:'Low', effort:'Low', source:'docs/cloud-portability.md, gap #5'},
+      {key:'g6', x:894, y:157, cat:'gap', id:'G6', title:'Versioned Data Purge Timing', system:'data-versioning',
+        desc:'S3Deleter and BlobDeleter hard-delete current object versions immediately; noncurrent/soft-deleted versions are wiped by each cloud’s lifecycle policy on its own schedule (14–30 day window), not instantly. A literal reading of “permanent erasure” as instant-everywhere would need ListObjectVersions + DeleteObjectVersion batching on top of this.',
+        impact:'High (GDPR-adjacent, erasure SLA could be questioned)', effort:'High (a real feature, not config)', source:'docs/cloud-portability.md gap #1 (data-versioning)'},
+      {key:'g7', x:925, y:471, cat:'gap', id:'G7', title:'Blob Has No Batch-Delete', system:'data-versioning',
+        desc:'Azure Blob has no equivalent of S3’s 1000-object DeleteObjects batch call, so BlobDeleter deletes one blob at a time. Fine at saga scale; would slow down for a very large tenant’s footprint.',
+        impact:'Low', effort:'Medium', source:'docs/cloud-portability.md gap #2 (data-versioning)'},
+      {key:'g8', x:588, y:325, cat:'gap', id:'G8', title:'Service Bus Has No Oldest-Message-Age Metric', system:'ingestion',
+        desc:'AWS exposes ApproximateAgeOfOldestMessage directly for queue-backlog alarms; Service Bus has no first-class equivalent, so Azure on-call loses that specific early-warning signal unless a KQL-computed proxy is built.',
+        impact:'Medium (on-call blind spot)', effort:'Medium', source:'docs/cloud-portability.md (ingestion)'},
+      {key:'g9', x:282, y:415, cat:'gap', id:'G9', title:'tflint Is AWS-Only in CI', system:'ingestion',
+        desc:'The Terraform lint job runs tflint’s AWS ruleset against iac/aws only; iac/azure gets Trivy’s config scan but not a comparable dedicated linter.',
+        impact:'Low', effort:'Low', source:'CI workflow config'},
+      {key:'q1', x:517, y:247, cat:'question', id:'Q1', title:'Saga Circuit Breaker + Stuck-Saga Alert', system:'data-versioning',
+        desc:'A saga that fails permanently currently retries forever on the periodic resume sweep, with no attempts cap or operator alert. Open question: is unbounded retry acceptable, or does it need a circuit breaker and a page?',
+        impact:'Medium', effort:'Low–Medium', source:'SPEC-002 (data-versioning), open questions'},
+      {key:'q2', x:670, y:583, cat:'question', id:'Q2', title:'Per-Tenant Dedup Namespaces', system:'autorater',
+        desc:'The semantic dedup gate currently suppresses on failure_mode + response globally — one tenant’s failure signature can suppress another tenant’s identical one, saving more judge spend but blurring tenant boundaries. Acceptable, or does dedup need per-tenant namespacing?',
+        impact:'Low', effort:'Medium', source:'SPEC-002 (autorater), open questions'},
+      {key:'q3', x:803, y:269, cat:'question', id:'Q3', title:'Miner Lease Heartbeat / Extension', system:'autorater',
+        desc:'The miner’s lease has a fixed 900-second TTL with no heartbeat renewal. A sweep that genuinely runs longer than that could lose its lease mid-run — the dedup gate and idempotent writes partially absorb a resulting double-run, but it isn’t designed for.',
+        impact:'Medium–High', effort:'Medium', source:'SPEC-004 (autorater), open questions'},
+      {key:'q4', x:752, y:191, cat:'question', id:'Q4', title:'Alert-Loss Retry Queue', system:'autorater',
+        desc:'If every alert channel fails, the webhook returns 502 and the alert is lost — the results row is the only surviving record. Should this retry from a durable queue instead of relying on that row being noticed?',
+        impact:'High (a critical alert could silently fail to page anyone)', effort:'Medium', source:'SPEC-005 (autorater), REQ-OUT-4 open question'},
+    ];
+
+    items.forEach(function(it,i){
+      var w=58,h=40;
+      body += '<g data-cat="'+it.cat+'">' + node(it.key, it.x-w/2, it.y-h/2, w, h, [it.id], null, it.cat==='gap'?'shared':'warn', {i:i, titleSize:14}) + '</g>';
+      DETAILS[it.key] = {tag:(it.cat==='gap'?'GAP':'OPEN QUESTION')+' · '+it.system.toUpperCase(), type: it.cat==='gap'?'shared':'warn', title:it.title, desc:it.desc,
+        specs:[['Impact', it.impact],['Effort to close', it.effort],['Source', it.source]]};
+    });
+
+    var svg = '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Risk and gaps register">'+body+'</svg>';
+    document.getElementById('canvas-6').innerHTML = svg;
+    wireNodes(document.getElementById('canvas-6'));
+
+    var riskToggle = document.getElementById('riskToggle');
+    riskToggle.addEventListener('click', function(e){
+      var btn = e.target.closest('button'); if(!btn) return;
+      riskToggle.querySelectorAll('button').forEach(function(b){ b.classList.remove('on'); });
+      btn.classList.add('on');
+      var cat = btn.getAttribute('data-cat');
+      var c = document.getElementById('canvas-6');
+      c.querySelectorAll('[data-cat="gap"]').forEach(function(el){ el.style.opacity = (cat==='question') ? .12 : 1; });
+      c.querySelectorAll('[data-cat="question"]').forEach(function(el){ el.style.opacity = (cat==='gap') ? .12 : 1; });
+    });
+  }
+
+  /* ============================= SHEET 7 — capability map ============================= */
+  function sheet7(){
+    var W=1280, H=460;
+    var body = arrowDefs(7);
+
+    var caps = [
+      {key:'cap-privacy', x:30,   title:['Data Privacy','& Compliance']},
+      {key:'cap-traffic', x:206,  title:['Traffic','Ingestion']},
+      {key:'cap-lineage', x:382,  title:['Dataset','Governance']},
+      {key:'cap-qa',      x:558,  title:['Quality','Assurance']},
+      {key:'cap-cost',    x:734,  title:['Cost','Governance']},
+      {key:'cap-resil',   x:910,  title:['Operational','Resilience']},
+      {key:'cap-portable',x:1086, title:['Cloud','Portability']},
+    ];
+    var capW=160, capH=72, capY=50;
+    caps.forEach(function(c,i){
+      body += node(c.key, c.x, capY, capW, capH, c.title, null, 'shared', {i:i, titleSize:12});
+    });
+
+    var systems = [
+      {key:'sys-ingestion', x:60,  title:['Ingestion & Redaction']},
+      {key:'sys-wipeout',   x:460, title:['Data Versioning & Wipeout']},
+      {key:'sys-autorater', x:860, title:['Evaluation Mining & Autorater']},
+    ];
+    var sysW=360, sysH=110, sysY=290;
+    systems.forEach(function(s,i){
+      body += node(s.key, s.x, sysY, sysW, sysH, s.title, 'see Sheet 01', 'aws', {i:i+7, titleSize:14.5, pill:'SYSTEM'});
+    });
+
+    var ingCx=240, wipeCx=640, autoCx=1040;
+    var edges = [
+      ['cap-privacy','sys-ingestion', 110, ingCx],
+      ['cap-privacy','sys-wipeout',   110, wipeCx],
+      ['cap-traffic','sys-ingestion', 286, ingCx],
+      ['cap-lineage','sys-wipeout',   462, wipeCx],
+      ['cap-qa','sys-autorater',      638, autoCx],
+      ['cap-cost','sys-ingestion',    814, ingCx],
+      ['cap-cost','sys-wipeout',      814, wipeCx],
+      ['cap-cost','sys-autorater',    814, autoCx],
+      ['cap-resil','sys-ingestion',   990, ingCx],
+      ['cap-resil','sys-wipeout',     990, wipeCx],
+      ['cap-resil','sys-autorater',   990, autoCx],
+      ['cap-portable','sys-ingestion',1166, ingCx],
+      ['cap-portable','sys-wipeout',  1166, wipeCx],
+      ['cap-portable','sys-autorater',1166, autoCx],
+    ];
+    edges.forEach(function(e,i){
+      body += edge('cape'+i, e[0], e[1], vBend(e[2], capY+capH, e[3], sysY, .55), {sheet:7, i:i});
+    });
+
+    var svg = '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Capability map">'+body+'</svg>';
+    document.getElementById('canvas-7').innerHTML = svg;
+    wireNodes(document.getElementById('canvas-7'));
+
+    DETAILS['cap-privacy'] = {tag:'CAPABILITY', type:'shared', title:'Data Privacy & Compliance',
+      desc:'The platform’s core compliance promise: personal data is redacted before it’s ever persisted, and a certified request can permanently erase a tenant’s footprint end-to-end. Two systems jointly deliver this — Ingestion never lets raw PII reach storage; Wipeout can prove it’s gone.',
+      specs:[['Delivered by','Ingestion (redaction), Data Versioning (GDPR saga)'],['Evidence','tier_purged / saga_completed log events']]};
+    DETAILS['cap-traffic'] = {tag:'CAPABILITY', type:'shared', title:'Traffic Ingestion & Tenant Onboarding',
+      desc:'Accepting live multi-tenant traffic at the edge, authenticating per tenant, and landing it durably — the entry point every other capability depends on.',
+      specs:[['Delivered by','Ingestion & Redaction']]};
+    DETAILS['cap-lineage'] = {tag:'CAPABILITY', type:'shared', title:'Dataset Governance & Lineage',
+      desc:'Every evaluation dataset gets a content-addressed, tamper-evident version history, with golden datasets requiring an explicit sign-off — the record of what was tested, by whom, and whether it can be trusted.',
+      specs:[['Delivered by','Data Versioning (datavault)']]};
+    DETAILS['cap-qa'] = {tag:'CAPABILITY', type:'shared', title:'Quality Assurance & Regression Detection',
+      desc:'Continuously mines live traffic for runtime failures and safety violations, cost-gates them through semantic dedup, and pages on-call the moment a deploy regresses — the platform’s early-warning system.',
+      specs:[['Delivered by','Evaluation Mining & Autorater']]};
+    DETAILS['cap-cost'] = {tag:'CAPABILITY · PLATFORM-WIDE', type:'shared', title:'Cost Governance / FinOps',
+      desc:'Every resource on both clouds carries the same five cost-allocation tags; storage decays automatically through lifecycle tiering instead of accumulating indefinitely; budgets alert before they’re blown. A platform-wide discipline, not a per-system feature.',
+      specs:[['Delivered by','All three systems (shared tagging + lifecycle convention)']]};
+    DETAILS['cap-resil'] = {tag:'CAPABILITY · PLATFORM-WIDE', type:'shared', title:'Operational Resilience & On-Call Readiness',
+      desc:'A single structured JSON log envelope, five saved on-call slice queries per system, and crash-safe resume logic (queue redrive, saga checkpoint/replay, durable cursor + lease) mean an incident is diagnosable in minutes, not hours — on every system, on either cloud.',
+      specs:[['Delivered by','All three systems']]};
+    DETAILS['cap-portable'] = {tag:'CAPABILITY · PLATFORM-WIDE', type:'shared', title:'Cloud Portability / Vendor Independence',
+      desc:'Every system deploys symmetrically to AWS or Azure from sibling Terraform roots behind one CLOUD_PROVIDER switch — no system is structurally locked to a single vendor.',
+      specs:[['Delivered by','All three systems (dual-root IaC + provider adapters)']]};
+    DETAILS['sys-ingestion'] = {tag:'SYSTEM', type:'aws', title:'Ingestion & Redaction', desc:'Full system view: Sheet 01 — System Context.'};
+    DETAILS['sys-wipeout'] = {tag:'SYSTEM', type:'aws', title:'Data Versioning & Wipeout', desc:'Full system view: Sheet 01 — System Context.'};
+    DETAILS['sys-autorater'] = {tag:'SYSTEM', type:'aws', title:'Evaluation Mining & Autorater', desc:'Full system view: Sheet 01 — System Context.'};
+  }
+
+  /* ============================= tabs ============================= */
+  var rendered = {};
+  var builders = {1:sheet1, 2:sheet2, 3:sheet3, 4:sheet4, 5:sheet5, 6:sheet6, 7:sheet7};
+  var titles = {
+    1:'SHEET 01 / 07 — SYSTEM CONTEXT',
+    2:'SHEET 02 / 07 — DEPLOYMENT TOPOLOGY',
+    3:'SHEET 03 / 07 — DATA FLOW & CLASSIFICATION',
+    4:'SHEET 04 / 07 — SECURITY & TRUST BOUNDARIES',
+    5:'SHEET 05 / 07 — RUNTIME SEQUENCE',
+    6:'SHEET 06 / 07 — RISK & GAPS REGISTER',
+    7:'SHEET 07 / 07 — CAPABILITY MAP',
+  };
+
+  function activate(n){
+    document.querySelectorAll('.tab').forEach(function(t){
+      t.setAttribute('aria-selected', t.getAttribute('data-sheet')===n ? 'true':'false');
+    });
+    document.querySelectorAll('.sheet').forEach(function(s){ s.classList.remove('active'); });
+    document.getElementById('sheet-'+n).classList.add('active');
+    document.getElementById('footStatus').textContent = titles[n];
+    if(!rendered[n]){ builders[n](); rendered[n]=true; }
+  }
+
+  document.getElementById('tabs').addEventListener('click', function(e){
+    var btn = e.target.closest('.tab'); if(!btn) return;
+    activate(btn.getAttribute('data-sheet'));
+  });
+
+  activate('1');
+})();
+</script>
