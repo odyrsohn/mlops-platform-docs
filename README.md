@@ -8,11 +8,11 @@ one system.
 
 | File | What it is |
 |---|---|
-| `docs/architecture-review.html` | Interactive, dark-mode diagram set for an Enterprise Architecture review — system context, AWS↔Azure deployment topology, data classification, security boundaries, runtime sequences, risk register, capability map. Open directly in a browser. |
-| `diagrams-system-overview.md` | Hand-drawn ASCII end-to-end data flow across all three systems. |
-| `ROADMAP.md` | Engineering log: gaps found in review and how each was closed, plus the forward roadmap. |
-| `DEPLOYMENT.md` | Cross-repo deployment notes. |
-| `design-briefs/` | The original architectural briefs each repo was built from. |
+| [`docs/architecture-review.html`](https://odyrsohn.github.io/mlops-platform-docs/architecture-review.html) | Interactive, dark-mode diagram set for an Enterprise Architecture review — system context, AWS↔Azure deployment topology, data classification, security boundaries, runtime sequences, risk register, capability map. Hosted via GitHub Pages, or open [the file](docs/architecture-review.html) directly in a browser. |
+| [`diagrams-system-overview.md`](diagrams-system-overview.md) | Hand-drawn ASCII end-to-end data flow across all three systems. |
+| [`ROADMAP.md`](ROADMAP.md) | Engineering log: gaps found in review and how each was closed, plus the forward roadmap. |
+| [`DEPLOYMENT.md`](DEPLOYMENT.md) | Cross-repo deployment notes. |
+| [`design-briefs/`](design-briefs/) | The original architectural briefs each repo was built from. |
 
 ## Why this repo exists
 
