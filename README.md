@@ -11,7 +11,7 @@ with dataset versioning and GDPR right-to-erasure as the governance layer over i
 
 ## What's here
 
-### [Architecture review](https://odyrsohn.github.io/mlops-platform-docs/architecture-review.html) — the platform as a reviewer would interrogate it
+### [Architecture review](https://htmlpreview.github.io/?https://github.com/odyrsohn/mlops-platform-docs/blob/main/docs/architecture-review.html) — the platform as a reviewer would interrogate it
 
 Seven sheets. The system context and the actors who touch it. The AWS↔Azure deployment
 topology, where every resource lane has a symmetric twin on the other cloud and the one
@@ -24,7 +24,7 @@ known items — nine cloud-parity gaps, four open design questions — plotted b
 against effort to close. And seven governance capabilities mapped to the systems that
 deliver them.
 
-Hosted above; [the source file](docs/architecture-review.html) opens standalone in a browser.
+Rendered above through htmlpreview; [the source file](docs/architecture-review.html) opens standalone in a browser.
 
 ### [`diagrams-system-overview.md`](diagrams-system-overview.md) — how the data actually moves
 
